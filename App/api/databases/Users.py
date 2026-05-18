@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime,func,VARCHAR,ForeignKey
+
 from datetime import datetime
 from typing import List, Optional
 from App.api.dependencies.sqlite_connector import Base, engine
@@ -16,11 +17,5 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     disabled = Column(Boolean, default=False)
     is_admin = Column(Boolean, default=False)
-    
-    # Soft Delete attributes
     is_deleted = Column(Boolean, default=False)
     deleted_at = Column(DateTime, nullable=True)
-
-# Create tables
-Base.metadata.create_all(bind=engine)
-

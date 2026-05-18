@@ -1,7 +1,7 @@
 # settings.py - SQLite version (configured from .env)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import SecretStr, Field, field_validator
-from typing import Any
+from typing import Any,Optional
 import os
 
 
@@ -21,6 +21,8 @@ class Settings(BaseSettings):
         description="Secret key for JWT token signing"
     )
     
+    MAX_REPOS:int=Field(11,description="max repos ")
+
     ALGORITHM: str = Field(
         description="JWT algorithm (HS256, HS384, HS512, RS256, etc.)"
     )
