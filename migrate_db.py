@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from App.api.dependencies.sqlite_connector import Base, engine
 
 # Import all models (each once, with consistent naming)
-from App.api.databases.Users import User
+from App.api.databases import  User
 from App.api.databases.Repository import Repository
 from App.api.databases.UserRepo import userRepo
 from App.api.databases.sshKeys import SSHKey

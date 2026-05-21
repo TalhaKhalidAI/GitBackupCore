@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Optional, Dict, Set, Tuple, List
 from concurrent.futures import ThreadPoolExecutor
-
+from dulwich.ignore import IgnoreFilterManager
 from dulwich.protocol import Protocol
 from dulwich.server import (
     UploadPackHandler,
@@ -57,7 +57,7 @@ class GitignoreManager:
     def _load_ignore_manager(self, repo_name: str) -> Optional['IgnoreFilterManager']:
         """Synchronously load ignore filter manager for a repo (runs in executor)."""
         try:
-            from dulwich.ignore import IgnoreFilterManager
+            
             repo = self.repo_manager.get_repo(repo_name)
             if not repo:
                 return None

@@ -1,5 +1,5 @@
 # App/models/__init__.py
-from App.api.databases import Users
+from App.api.databases.Users import User
 from  App.api.databases.Repository import Repository
 from  App.api.databases.UserRepo import userRepo
 from  App.api.databases.sshKeys import SSHKey

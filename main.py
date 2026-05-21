@@ -10,7 +10,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from App.api.v1 import v1_router
 from App.core.settings import settings
 from App.core.LoggingInit import get_core_logger
-
+from App.core.git_core import GitCore
 # Initialize Logger
 logger = get_core_logger(__name__)
 
@@ -56,9 +56,9 @@ def create_default_admin():
         db.close()
 
 @asynccontextmanager
-async def lifespan(app):
+async def lifespan(app:FastAPI):
     logger.info("App started")
-    
+    #app.state.git_manager = GitCore(max_repos=settings.MAX_REPOS)
     # Create default admin user
     create_default_admin()
     
