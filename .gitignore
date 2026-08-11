@@ -44,3 +44,7 @@ keys
 **All_Repo**
 **.mypy_cache**
 **.pytest_cache**
+.venv**
+pyproject.toml
+.python-version
+uv.lock

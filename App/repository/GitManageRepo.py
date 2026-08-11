@@ -209,8 +209,7 @@ class GitRepoManager:
             # 1. DB record first — catches duplicate names via unique constraint
             db_repo = Repository(
                 repo_name=repo_name,
-                commit_sha_id="0" * 40,
-                branch_name=branch_name,
+                commit_sha_id="0" * 40, 
                 owner_user_id=user_id,
             )
             db.add(db_repo)
@@ -263,6 +262,7 @@ class GitRepoManager:
                 repo_path = os.path.join(settings.REPO_PATH, repo_name)
                 if os.path.exists(repo_path):
                     shutil.rmtree(repo_path)
+                db.query(userRepo).filter(userRepo.repo_id == db_repo.id).delete()
                 db.delete(db_repo)
                 db.commit()
                 logger.info("Hard-deleted repo '%s' by user %s.", repo_name, user_id)
@@ -281,7 +281,38 @@ class GitRepoManager:
         except Exception as exc:
             db.rollback()
             raise ValueError(f"Could not delete repository: {exc}") from exc
+            
+    async def restore_repo(self, repo_name: str, user_id: int) -> Dict[str, Any]:
+        """Restore a soft-deleted repository."""
+        _validate_repo_name(repo_name)
+        db = await self._get_db()
 
+        try:
+            user = _require_user(db, user_id)
+            
+            # Find soft-deleted repo (deleted = True)
+            db_repo = db.query(Repository).filter(
+                Repository.repo_name == repo_name,
+                Repository.deleted == True
+            ).first()
+            
+            if not db_repo:
+                raise ValueError("Repository not found or not soft-deleted")
+            
+            if not _has_repo_permission(db, user, db_repo, "admin"):
+                raise ValueError("Permission denied")
+            
+            # Restore the repository
+            db_repo.deleted = False
+            db_repo.deleted_at = None
+            db.commit()
+            
+            logger.info(f"Restored repo '{repo_name}' by user {user_id}")
+            return {"success": True, "action": "restore", "repo_name": repo_name}
+            
+        except Exception as exc:
+            db.rollback()
+            raise ValueError(f"Could not restore repository: {exc}") from exc
     # ==================================================================
     # BRANCH MANAGEMENT
     # ==================================================================

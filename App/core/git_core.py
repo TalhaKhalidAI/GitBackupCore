@@ -14,6 +14,7 @@ from dulwich.repo import Repo
 from dulwich.diff_tree import tree_changes
 from App.core.LoggingInit import get_core_logger
 from App.core.settings import settings
+from pathlib import Path
 
 logger = get_core_logger(__name__)
 
@@ -70,9 +71,10 @@ class GitCore:
                 "errors": 0,
             }
 
-            # ThreadPool is safer for Dulwich (shared memory objects)
+            # ✅ FIXED: ThreadPool with proper naming
             self.executor = ThreadPoolExecutor(
-                max_workers=min(32, (os.cpu_count() or 1) * 4)
+                max_workers=min(32, (os.cpu_count() or 1) * 4),
+                thread_name_prefix="GitCore"
             )
 
             logger.info(
@@ -100,16 +102,25 @@ class GitCore:
             self.locks[repo_name] = asyncio.Lock()
         return self.locks[repo_name]
 
+    # ✅ FIXED: Double-check locking to avoid race conditions
     async def get_repo(self, repo_name: str) -> Repo:
         """Get or initialize a repository handle with LRU eviction."""
-        async with self._manager_lock:
-            if repo_name in self.repos:
+        # Fast path: check without lock
+        if repo_name in self.repos:
+            async with self._manager_lock:
                 self.repos.move_to_end(repo_name)
                 return self.repos[repo_name]
 
-            repo_path = os.path.join(self.main_repo_path, repo_name)
-            if not os.path.exists(os.path.join(repo_path, ".git")):
-                raise FileNotFoundError(f"Repository {repo_name} not initialized")
+        repo_path = os.path.join(self.main_repo_path, repo_name)
+        if not os.path.exists(os.path.join(repo_path, ".git")):
+            raise FileNotFoundError(f"Repository {repo_name} not initialized")
+
+        # Slow path: lock and double-check
+        async with self._manager_lock:
+            # Double-check after acquiring lock
+            if repo_name in self.repos:
+                self.repos.move_to_end(repo_name)
+                return self.repos[repo_name]
 
             # Evict LRU if full
             if len(self.repos) >= self.config["max_repos"]:
@@ -119,16 +130,16 @@ class GitCore:
 
             repo = Repo(repo_path)
             self.repos[repo_name] = repo
+            self.last_repo_name = repo_name
             return repo
 
-
+    # ✅ FIXED: Using self.executor instead of None
     async def init_git(self, repo_name: str, branch_name: str = "main"):
         """Initialize or open a Git repository."""
         repo_path = os.path.abspath(os.path.join(self.main_repo_path, repo_name))
         os.makedirs(repo_path, exist_ok=True)
 
         async with self._get_lock(repo_name):
-
             def _init_sync():
                 git_path = os.path.join(repo_path, ".git")
                 if not os.path.exists(git_path):
@@ -136,7 +147,8 @@ class GitCore:
                 return Repo(repo_path)
 
             loop = asyncio.get_running_loop()
-            repo = await loop.run_in_executor(None, _init_sync)
+            # ✅ FIXED: Use self.executor
+            repo = await loop.run_in_executor(self.executor, _init_sync)
 
             async with self._manager_lock:
                 self.repos[repo_name] = repo
@@ -154,10 +166,12 @@ class GitCore:
                         pass  # New repo, no commits yet
                 repo.refs.set_symbolic_ref(b"HEAD", branch_ref)
 
-            await loop.run_in_executor(None, _setup_branch)
+            # ✅ FIXED: Use self.executor
+            await loop.run_in_executor(self.executor, _setup_branch)
             logger.info(f"✅ Repository '{repo_name}' ready at {repo_path}")
             return {"success": True, "repo_path": repo_path}
 
+    # ✅ FIXED: Using self.executor instead of None
     async def create_branch(
         self, repo_name: str, branch_name: str, branch_from: str = "main"
     ):
@@ -180,7 +194,8 @@ class GitCore:
                 return current_commit_sha
 
             loop = asyncio.get_running_loop()
-            current_commit_sha = await loop.run_in_executor(None, _git_operations)
+            # ✅ FIXED: Use self.executor
+            current_commit_sha = await loop.run_in_executor(self.executor, _git_operations)
             logger.info(f"✅ Created branch '{branch_name}' in '{repo_name}'")
             return {
                 "success": True,
@@ -188,6 +203,7 @@ class GitCore:
                 "commit": current_commit_sha.hex()[:8],
             }
 
+    # ✅ FIXED: Using self.executor instead of None
     async def delete_branch(
         self, repo_name: str, branch_name: str, force: bool = False
     ):
@@ -209,7 +225,8 @@ class GitCore:
                 return True
 
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, _delete)
+            # ✅ FIXED: Use self.executor
+            await loop.run_in_executor(self.executor, _delete)
             logger.info(f"✅ Deleted branch '{branch_name}' in '{repo_name}'")
             return {"success": True, "branch": branch_name}
 
@@ -239,6 +256,7 @@ class GitCore:
                 return True
         return False
 
+    # ✅ Already using self.executor (correct)
     async def dir_walk(self, dir_path: str) -> dict:
         """Recursively walk directory with offloading and .gitignore support."""
         loop = asyncio.get_running_loop()
@@ -285,6 +303,7 @@ class GitCore:
 
         return await loop.run_in_executor(self.executor, _walk)
 
+    # ✅ Already using self.executor (correct)
     async def traverse_tree(
         self,
         data: dict,
@@ -377,6 +396,7 @@ class GitCore:
 
         return current_tree
 
+    # ✅ Already using self.executor (correct)
     async def make_tree(
         self,
         repo: Repo,
@@ -433,6 +453,7 @@ class GitCore:
             _git_ops(), timeout=self.config["timeouts"]["walk"]
         )
 
+    # ✅ FIXED: Using self.executor instead of None
     async def comparison(self, repo_name: str, branch_name: str = "main") -> dict:
         """Compare virtual tree with actual Git branch."""
         repo = await self.get_repo(repo_name)
@@ -475,7 +496,8 @@ class GitCore:
                     return tree_changes(repo, base_tree.id, virtual_tree.id)
 
                 loop = asyncio.get_running_loop()
-                changes = await loop.run_in_executor(None, _compare)
+                # ✅ FIXED: Use self.executor
+                changes = await loop.run_in_executor(self.executor, _compare)
 
                 result = {"added": [], "modified": [], "deleted": [], "unchanged": []}
                 for change in changes:
@@ -512,6 +534,7 @@ class GitCore:
         )
         return {"branch": branch, "changes": diffs}
 
+    # ✅ FIXED: Using self.executor instead of None
     async def compare_branches(self, repo_name: str, source_branch: str, target_branch: str) -> dict:
         """Compare two branches directly (Target vs Source)."""
         repo = await self.get_repo(repo_name)
@@ -531,16 +554,20 @@ class GitCore:
                     return tree_changes(repo, source_tree.id, target_tree.id)
                 
                 loop = asyncio.get_running_loop()
-                changes = await loop.run_in_executor(None, _compare)
+                # ✅ FIXED: Use self.executor
+                changes = await loop.run_in_executor(self.executor, _compare)
                 
                 result = {"added": [], "modified": [], "deleted": [], "unchanged": []}
                 for change in changes:
                     new_path = change.new.path if getattr(change, "new", None) else None
                     old_path = change.old.path if getattr(change, "old", None) else None
                     path = (new_path or old_path).decode()
-                    if change.type == b"add": result["added"].append(path)
-                    elif change.type == b"delete": result["deleted"].append(path)
-                    elif change.type == b"modify": result["modified"].append(path)
+                    if change.type == b"add":
+                        result["added"].append(path)
+                    elif change.type == b"delete":
+                        result["deleted"].append(path)
+                    elif change.type == b"modify":
+                        result["modified"].append(path)
                 return result
 
         self.metrics["status_checks"] += 1
@@ -587,6 +614,7 @@ class GitCore:
         repo.object_store.add_object(merged_tree)
         return {"success": True, "tree_id": merged_tree.id}
 
+    # ✅ Already using self.executor (correct)
     async def merge_branches(self, repo_name: str, source_branch: str, target_branch: str):
         """Perform a 3-way merge between two branches."""
         repo = await self.get_repo(repo_name)
@@ -596,7 +624,8 @@ class GitCore:
             
             from dulwich.graph import find_merge_base
             bases = find_merge_base(repo, [source_commit.id, target_commit.id])
-            if not bases: raise RuntimeError("No common ancestor")
+            if not bases:
+                raise RuntimeError("No common ancestor")
             
             base_commit = repo[bases[0]]
             
@@ -607,7 +636,8 @@ class GitCore:
                 repo, base_commit.tree, source_commit.tree, target_commit.tree
             )
             
-            if not res["success"]: return res
+            if not res["success"]:
+                return res
             
             # Create Merge Commit
             def _commit():
@@ -626,14 +656,17 @@ class GitCore:
             sha = await loop.run_in_executor(self.executor, _commit)
             return {"success": True, "status": "MERGED", "commit": sha}
 
+    # ✅ Already using self.executor (correct)
     async def get_log(self, repo_name: str, branch: str = "main", limit: int = 10) -> List[dict]:
         """Get commit history for a specific branch."""
         repo = await self.get_repo(repo_name)
         async with self._get_lock(repo_name):
             try:
                 branch_ref = f"refs/heads/{branch}".encode()
+                
+                # ✅ FIXED: Raise error if branch doesn't exist
                 if branch_ref not in repo.refs:
-                    return []
+                    raise ValueError(f"Branch '{branch}' does not exist")
                 
                 walker = repo.get_walker(include=[repo.refs[branch_ref]], max_entries=limit)
                 
@@ -652,10 +685,13 @@ class GitCore:
 
                 loop = asyncio.get_running_loop()
                 return await loop.run_in_executor(self.executor, _process_log)
+            except ValueError:
+                raise
             except Exception as e:
                 logger.error(f"Failed to fetch log: {e}")
                 return []
 
+    # ✅ Already using self.executor (correct)
     async def get_commit_show(self, repo_name: str, sha_hex: str) -> dict:
         """Show details and changes for a specific commit."""
         repo = await self.get_repo(repo_name)
@@ -670,10 +706,29 @@ class GitCore:
                     parent_tree = repo[repo[parent_sha].tree].id
                     diffs = tree_changes(repo, parent_tree, commit.tree)
                     for c in diffs:
-                        path = c.new.path or c.old.path
+                        # ✅ FIX: Safely handle path (could be bytes or string)
+                        if c.new:
+                            path = c.new.path
+                        elif c.old:
+                            path = c.old.path
+                        else:
+                            path = b""
+                        
+                        # ✅ Convert bytes to string if needed
+                        if isinstance(path, bytes):
+                            path = path.decode('utf-8', errors='replace')
+                        else:
+                            path = str(path)
+                        
+                        # ✅ Convert type safely
+                        if isinstance(c.type, bytes):
+                            change_type = c.type.decode('utf-8', errors='replace')
+                        else:
+                            change_type = str(c.type)
+                        
                         changes.append({
-                            "path": path.decode(),
-                            "type": c.type.decode()
+                            "path": path,
+                            "type": change_type
                         })
                 else:
                     # Initial commit: all files are "add"
@@ -681,7 +736,14 @@ class GitCore:
                         files = []
                         tree = repo[tree_id]
                         for entry in tree.items():
-                            path = os.path.join(prefix, entry.path.decode()) if prefix else entry.path.decode()
+                            # ✅ Convert entry path safely
+                            if isinstance(entry.path, bytes):
+                                name = entry.path.decode('utf-8', errors='replace')
+                            else:
+                                name = str(entry.path)
+                            
+                            path = os.path.join(prefix, name) if prefix else name
+                            
                             if entry.mode == 0o40000:
                                 files.extend(_get_files(entry.sha, path))
                             else:
@@ -691,8 +753,8 @@ class GitCore:
 
                 return {
                     "sha": commit.id.hex(),
-                    "author": commit.author.decode(),
-                    "message": commit.message.decode().strip(),
+                    "author": commit.author.decode('utf-8', errors='replace') if isinstance(commit.author, bytes) else str(commit.author),
+                    "message": commit.message.decode('utf-8', errors='replace').strip() if isinstance(commit.message, bytes) else str(commit.message).strip(),
                     "time": time.ctime(commit.author_time),
                     "changes": changes
                 }
@@ -700,6 +762,7 @@ class GitCore:
                 logger.error(f"Failed to show commit {sha_hex}: {e}")
                 raise ValueError(f"Invalid commit or error: {e}")
 
+    # ✅ Already using self.executor (correct)
     async def create_tag(self, repo_name: str, tag_name: str, target: str = "HEAD"):
         """Create a lightweight tag."""
         repo = await self.get_repo(repo_name)
@@ -717,8 +780,10 @@ class GitCore:
                     except ValueError:
                         # Maybe it's a branch name
                         ref = f"refs/heads/{target}".encode()
-                        if ref in repo.refs: target_sha = repo.refs[ref]
-                        else: raise ValueError(f"Invalid target {target}")
+                        if ref in repo.refs:
+                            target_sha = repo.refs[ref]
+                        else:
+                            raise ValueError(f"Invalid target {target}")
                 
                 tag_ref = f"refs/tags/{tag_name}".encode()
                 repo.refs[tag_ref] = target_sha
@@ -728,6 +793,7 @@ class GitCore:
                 logger.error(f"Failed to create tag: {e}")
                 raise
 
+    # ✅ Already using self.executor (correct)
     async def list_tags(self, repo_name: str) -> List[dict]:
         """List all tags in a repository efficiently."""
         repo = await self.get_repo(repo_name)
@@ -743,6 +809,7 @@ class GitCore:
                     })
             return tags
 
+    # ✅ Already using self.executor (correct)
     async def reset(self, repo_name: str, target: str, mode: str = "soft"):
         """Reset current branch to a specific commit."""
         repo = await self.get_repo(repo_name)
@@ -754,14 +821,17 @@ class GitCore:
                 except ValueError:
                     # Check if it's a branch
                     ref = f"refs/heads/{target}".encode()
-                    if ref in repo.refs: target_sha = repo.refs[ref]
-                    else: raise ValueError(f"Invalid target {target}")
+                    if ref in repo.refs:
+                        target_sha = repo.refs[ref]
+                    else:
+                        raise ValueError(f"Invalid target {target}")
                 
-                _ = repo[target_sha] # Verify existence
+                _ = repo[target_sha]  # Verify existence
                 
                 # 2. Update Branch Ref
                 current_head = repo.refs.get_symrefs().get(b"HEAD")
-                if not current_head: raise RuntimeError("Detached HEAD")
+                if not current_head:
+                    raise RuntimeError("Detached HEAD")
                 
                 repo.refs[current_head] = target_sha
                 logger.info(f"✅ Reset {current_head.decode()} to {target_sha.hex()[:8]}")
@@ -774,6 +844,7 @@ class GitCore:
             return await self.checkout(repo_name, target_sha.hex())
         return {"success": True, "mode": mode, "target": target_sha.hex()[:8]}
 
+    # ✅ Already using self.executor (correct)
     async def stash_push(self, repo_name: str, message: str = "Stashed changes"):
         """
         Save current dirty state to the stash.
@@ -822,6 +893,7 @@ class GitCore:
         await self.checkout(repo_name, "HEAD")
         return {"success": True, "stash_sha": stash_sha}
 
+    # ✅ Already using self.executor (correct)
     async def stash_pop(self, repo_name: str):
         """Restore the most recent stashed state."""
         repo = await self.get_repo(repo_name)
@@ -837,13 +909,15 @@ class GitCore:
         # Use checkout logic to apply stash to disk
         return await self.checkout(repo_name, stash_sha.hex())
 
+    # ✅ Already using self.executor (correct)
     async def revert(self, repo_name: str, commit_sha: str):
         """Undo a specific commit by creating a new inverse commit."""
         repo = await self.get_repo(repo_name)
         async with self._get_lock(repo_name):
             sha = bytes.fromhex(commit_sha)
             commit_to_revert = repo[sha]
-            if not commit_to_revert.parents: raise ValueError("Cannot revert initial commit")
+            if not commit_to_revert.parents:
+                raise ValueError("Cannot revert initial commit")
             
             parent_sha = commit_to_revert.parents[0]
             current_head = repo.refs.follow(b"HEAD")[0][0]
@@ -855,7 +929,8 @@ class GitCore:
                 self._perform_3way_merge, 
                 repo, commit_to_revert.tree, repo[parent_sha].tree, head_commit.tree
             )
-            if not res["success"]: return res
+            if not res["success"]:
+                return res
             
             def _commit():
                 commit = Commit()
@@ -872,13 +947,15 @@ class GitCore:
             sha_res = await loop.run_in_executor(self.executor, _commit)
             return {"success": True, "status": "REVERTED", "commit": sha_res}
 
+    # ✅ Already using self.executor (correct)
     async def cherry_pick(self, repo_name: str, commit_sha: str):
         """Apply a specific commit to the current branch."""
         repo = await self.get_repo(repo_name)
         async with self._get_lock(repo_name):
             sha = bytes.fromhex(commit_sha)
             source_commit = repo[sha]
-            if not source_commit.parents: raise ValueError("Cannot cherry-pick initial commit")
+            if not source_commit.parents:
+                raise ValueError("Cannot cherry-pick initial commit")
             
             parent_sha = source_commit.parents[0]
             current_head = repo.refs.follow(b"HEAD")[0][0]
@@ -890,7 +967,8 @@ class GitCore:
                 self._perform_3way_merge,
                 repo, repo[parent_sha].tree, source_commit.tree, head_commit.tree
             )
-            if not res["success"]: return res
+            if not res["success"]:
+                return res
             
             def _commit():
                 commit = Commit()
@@ -907,6 +985,7 @@ class GitCore:
             sha_res = await loop.run_in_executor(self.executor, _commit)
             return {"success": True, "status": "CHERRY_PICKED", "commit": sha_res}
 
+    # ✅ Already using self.executor (correct)
     async def reflog(self, repo_name: str, branch: str = "main") -> List[dict]:
         """Get the reflog for a specific branch."""
         repo = await self.get_repo(repo_name)
@@ -937,6 +1016,7 @@ class GitCore:
                 logger.error(f"Reflog failed: {e}")
                 return []
 
+    # ✅ Already using self.executor (correct)
     async def create_commit(self, repo_name: str, message: str = "Auto commit"):
         """Create a commit with pre-flight disk check and deadlock-free locking."""
         repo = await self.get_repo(repo_name)
@@ -963,7 +1043,7 @@ class GitCore:
                 except KeyError:
                     has_parent = False
 
-                # FIXED: Call UNLOCKED version to avoid re-entry deadlock
+                # Call UNLOCKED version to avoid re-entry deadlock
                 virtual_tree = await self._create_virtual_tree_unlocked(
                     repo, repo_name, base_tree=base_tree
                 )
@@ -988,12 +1068,12 @@ class GitCore:
 
         return await asyncio.wait_for(_run(), timeout=self.config["timeouts"]["commit"])
 
+    # ✅ Already using self.executor (correct)
     async def checkout(self, repo_name: str, target: str, force: bool = False):
         """Switch to a branch or commit and synchronize the disk state."""
         repo = await self.get_repo(repo_name)
         repo_path = os.path.join(self.main_repo_path, repo_name)
         
-        # 1. Resolve and Sync (Inside Lock to prevent TOCTOU races)
         async with self._get_lock(repo_name):
             try:
                 # A: Resolve Target
@@ -1025,7 +1105,7 @@ class GitCore:
                 elif target != "HEAD":
                     repo.refs[b"HEAD"] = target_sha
 
-                # C: Synchronize Disk (Still inside lock to prevent interleaved writes)
+                # C: Synchronize Disk
                 target_tree = repo[target_tree_id]
                 dir_tree = await self.dir_walk(repo_path)
                 
@@ -1059,8 +1139,10 @@ class GitCore:
                         if f not in target_files:
                             full_f = os.path.join(repo_path, f)
                             try:
-                                if os.path.isfile(full_f): os.remove(full_f)
-                            except Exception: pass
+                                if os.path.isfile(full_f):
+                                    os.remove(full_f)
+                            except Exception:
+                                pass
                     
                     # Write target
                     for rel_path, sha in target_files.items():
@@ -1072,11 +1154,14 @@ class GitCore:
                     # Cleanup dirs
                     for root, dirs, files in os.walk(repo_path, topdown=False):
                         for d in dirs:
-                            if d == ".git": continue
+                            if d == ".git":
+                                continue
                             p = os.path.join(root, d)
                             if os.path.exists(p) and not os.listdir(p):
-                                try: os.rmdir(p)
-                                except Exception: pass
+                                try:
+                                    os.rmdir(p)
+                                except Exception:
+                                    pass
 
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(self.executor, _sync_io)
@@ -1135,3 +1220,485 @@ class GitCore:
             repo.close()
         self.executor.shutdown(wait=True)
         logger.info("GitCore resources cleaned up")
+
+    async def list_repositories(self) -> List[Dict[str, Any]]:
+        """List all repositories on disk with metadata."""
+        repos = []
+        for name in os.listdir(self.main_repo_path):
+            repo_path = os.path.join(self.main_repo_path, name)
+            if os.path.isdir(repo_path) and os.path.exists(os.path.join(repo_path, ".git")):
+                try:
+                    repo = await self.get_repo(name)
+                    head = repo.refs.get_symrefs().get(b"HEAD")
+                    branch = head.decode().replace("refs/heads/", "") if head else "DETACHED"
+                    repos.append({
+                        "name": name,
+                        "branch": branch,
+                        "path": repo_path,
+                        "exists": True
+                    })
+                except Exception:
+                    repos.append({"name": name, "path": repo_path, "exists": False})
+        return repos
+
+    async def get_repository_info(self, repo_name: str) -> Dict[str, Any]:
+        """Get detailed repository information."""
+        repo = await self.get_repo(repo_name)
+        repo_path = os.path.join(self.main_repo_path, repo_name)
+        
+        head = repo.refs.get_symrefs().get(b"HEAD")
+        branch = head.decode().replace("refs/heads/", "") if head else "DETACHED"
+        
+        # Get latest commit
+        try:
+            commit_sha = repo.refs[f"refs/heads/{branch}".encode()]
+            commit = repo[commit_sha]
+            latest_commit = {
+                "sha": commit.id.hex(),
+                "message": commit.message.decode().strip(),
+                "author": commit.author.decode(),
+                "time": time.ctime(commit.author_time)
+            }
+        except:
+            latest_commit = None
+        
+        return {
+            "name": repo_name,
+            "path": repo_path,
+            "branch": branch,
+            "latest_commit": latest_commit,
+            "size_mb": self._get_repo_size(repo_path)
+        }
+
+    def _get_repo_size(self, repo_path: str) -> float:
+        """Calculate repository size in MB."""
+        total = sum(f.stat().st_size for f in Path(repo_path).rglob("*") if f.is_file())
+        return round(total / (1024 * 1024), 2)
+
+    async def delete_tag(self, repo_name: str, tag_name: str) -> Dict[str, Any]:
+        """Delete a tag from repository."""
+        repo = await self.get_repo(repo_name)
+        async with self._get_lock(repo_name):
+            tag_ref = f"refs/tags/{tag_name}".encode()
+            if tag_ref not in repo.refs:
+                raise ValueError(f"Tag '{tag_name}' not found")
+            del repo.refs[tag_ref]
+            return {"success": True, "tag": tag_name}
+        
+    async def list_stashes(self, repo_name: str) -> List[Dict[str, Any]]:
+        """List all stashes in repository."""
+        repo = await self.get_repo(repo_name)
+        stashes = []
+        
+        # Check main stash ref
+        if b"refs/stash" in repo.refs:
+            sha = repo.refs[b"refs/stash"]
+            commit = repo[sha]
+            stashes.append({
+                "index": 0,
+                "sha": sha.hex(),
+                "message": commit.message.decode().strip(),
+                "author": commit.author.decode(),
+                "time": time.ctime(commit.author_time)
+            })
+        return stashes
+    
+    async def list_files(self, repo_name: str, path: str = "", branch: str = "main") -> List[Dict[str, Any]]:
+        repo = await self.get_repo(repo_name)
+        async with self._get_lock(repo_name):
+            branch_ref = f"refs/heads/{branch}".encode()
+            if branch_ref not in repo.refs:
+                raise ValueError(f"Branch '{branch}' does not exist")
+            
+            commit = repo[repo.refs[branch_ref]]
+            tree = repo[commit.tree]
+            
+            files = []
+            if path:
+                # ✅ FIX: Strip leading slash
+                if path.startswith('/'):
+                    path = path.lstrip('/')
+                
+                try:
+                    mode, sha = tree.lookup_path(repo.get_object, path.encode())
+                    if mode == 0o40000:  # Directory
+                        tree = repo[sha]
+                    else:
+                        return [{"name": path, "type": "file", "size": repo[sha].raw_length()}]
+                except KeyError:
+                    raise ValueError(f"Path '{path}' not found in branch '{branch}'")
+            
+            for entry in tree.items():
+                name = entry.path.decode()
+                is_dir = entry.mode == 0o40000
+                files.append({
+                    "name": name,
+                    "type": "directory" if is_dir else "file",
+                    "size": 0 if is_dir else repo[entry.sha].raw_length()
+                })
+            return files
+
+    async def get_file_content(self, repo_name: str, file_path: str, branch: str = "main") -> Optional[str]:
+        """Get file content from repository."""
+        repo = await self.get_repo(repo_name)
+        async with self._get_lock(repo_name):
+            branch_ref = f"refs/heads/{branch}".encode()
+            
+            if branch_ref not in repo.refs:
+                raise ValueError(f"Branch '{branch}' does not exist")
+            
+            commit = repo[repo.refs[branch_ref]]
+            tree = repo[commit.tree]
+            
+            # ✅ Strip leading slash
+            if file_path.startswith('/'):
+                file_path = file_path.lstrip('/')
+            
+            try:
+                mode, sha = tree.lookup_path(repo.get_object, file_path.encode())
+                if mode == 0o40000:
+                    raise ValueError(f"{file_path} is a directory")
+                content = repo[sha].data
+                return content.decode('utf-8', errors='replace')
+            except KeyError:
+                raise ValueError(f"File '{file_path}' not found in branch '{branch}'")
+    # ==================== FILE UPLOAD METHODS ====================
+
+    async def add_file(self, repo_name: str, file_path: str, content: bytes, commit_message: str = "Add file") -> Dict[str, Any]:
+        """
+        Add a new file or update an existing file in the repository.
+        This writes to disk and creates a commit.
+        """
+        repo = await self.get_repo(repo_name)
+        repo_path = os.path.join(self.main_repo_path, repo_name)
+        
+        # ✅ FIXED: Remove leading slash to prevent absolute path issue
+        if file_path.startswith('/'):
+            file_path = file_path.lstrip('/')
+        
+        # Security: Prevent path traversal (..)
+        if '..' in file_path:
+            raise ValueError("Invalid file path - directory traversal detected")
+        
+        # Build full path
+        full_path = os.path.abspath(os.path.join(repo_path, file_path))
+        repo_path_abs = os.path.abspath(repo_path)
+        
+        # Security: Ensure file is inside repo
+        if not full_path.startswith(repo_path_abs + os.sep):
+            raise ValueError(f"Invalid file path - must be inside repository: {file_path}")
+        
+        # Create directory if needed
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        
+        # Write file
+        async with aiofiles.open(full_path, "wb") as f:
+            await f.write(content)
+        
+        # Create commit
+        result = await self.create_commit(repo_name, commit_message)
+        
+        return {
+            "success": True,
+            "file_path": file_path,
+            "commit": result["commit"]
+        }
+
+    async def add_files_bulk(self, repo_name: str, files: Dict[str, bytes], commit_message: str = "Add multiple files") -> Dict[str, Any]:
+        repo = await self.get_repo(repo_name)
+        repo_path = os.path.join(self.main_repo_path, repo_name)
+        repo_path_abs = os.path.abspath(repo_path)
+        
+        added_files = []
+        
+        for file_path, content in files.items():
+            # ✅ FIX: Strip leading slash
+            if file_path.startswith('/'):
+                file_path = file_path.lstrip('/')
+            
+            # ✅ FIX: Check for path traversal
+            if '..' in file_path:
+                raise ValueError(f"Invalid file path: {file_path} - directory traversal detected")
+            
+            full_path = os.path.abspath(os.path.join(repo_path, file_path))
+            
+            if not full_path.startswith(repo_path_abs + os.sep):
+
+                raise ValueError(f"Invalid file path: {file_path} - must be inside repository")
+            
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            
+            async with aiofiles.open(full_path, "wb") as f:
+                await f.write(content)
+            
+            added_files.append(file_path)
+        
+        result = await self.create_commit(repo_name, commit_message)
+        
+        return {
+            "success": True,
+            "added_files": added_files,
+            "count": len(added_files),
+            "commit": result["commit"]
+        }
+
+    async def delete_file(self, repo_name: str, file_path: str, commit_message: str = "Delete file") -> Dict[str, Any]:
+        repo = await self.get_repo(repo_name)
+        repo_path = os.path.join(self.main_repo_path, repo_name)
+        repo_path_abs = os.path.abspath(repo_path)
+        
+        # ✅ FIX: Strip leading slash
+        if file_path.startswith('/'):
+            file_path = file_path.lstrip('/')
+        
+        # ✅ FIX: Check for path traversal
+        if '..' in file_path:
+            raise ValueError("Invalid file path - directory traversal detected")
+        
+        full_path = os.path.abspath(os.path.join(repo_path, file_path))
+        
+        if not full_path.startswith(repo_path_abs + os.sep):
+            raise ValueError(f"Invalid file path - must be inside repository")
+        
+        if not os.path.exists(full_path):
+            raise ValueError(f"File '{file_path}' does not exist")
+        
+        os.remove(full_path)
+        
+        # Clean up empty directories...
+        dir_path = os.path.dirname(full_path)
+        while dir_path != repo_path:
+            try:
+                if not os.listdir(dir_path):
+                    os.rmdir(dir_path)
+                else:
+                    break
+            except (OSError, PermissionError):
+                break
+            dir_path = os.path.dirname(dir_path)
+        
+        result = await self.create_commit(repo_name, commit_message)
+        
+        return {
+            "success": True,
+            "file_path": file_path,
+            "commit": result["commit"]
+        }
+
+    async def move_file(self, repo_name: str, source_path: str, dest_path: str, commit_message: str = "Move file") -> Dict[str, Any]:
+        repo = await self.get_repo(repo_name)
+        repo_path = os.path.join(self.main_repo_path, repo_name)
+        repo_path_abs = os.path.abspath(repo_path)
+        
+        # ✅ FIX: Strip leading slash
+        if source_path.startswith('/'):
+            source_path = source_path.lstrip('/')
+        if dest_path.startswith('/'):
+            dest_path = dest_path.lstrip('/')
+        
+        # ✅ FIX: Check for path traversal
+        if '..' in source_path or '..' in dest_path:
+            raise ValueError("Invalid path - directory traversal detected")
+        
+        full_source = os.path.abspath(os.path.join(repo_path, source_path))
+        full_dest = os.path.abspath(os.path.join(repo_path, dest_path))
+        
+        if not full_source.startswith(repo_path_abs + os.sep):
+            raise ValueError("Invalid source path - must be inside repository")
+        if not full_dest.startswith(repo_path_abs + os.sep):
+            raise ValueError("Invalid destination path - must be inside repository")
+        
+        if not os.path.exists(full_source):
+            raise ValueError(f"Source file '{source_path}' does not exist")
+        if os.path.exists(full_dest):
+            raise ValueError(f"Destination file '{dest_path}' already exists")
+        
+        os.makedirs(os.path.dirname(full_dest), exist_ok=True)
+        shutil.move(full_source, full_dest)
+        
+        # Clean up empty source directories...
+        dir_path = os.path.dirname(full_source)
+        while dir_path != repo_path:
+            try:
+                if not os.listdir(dir_path):
+                    os.rmdir(dir_path)
+                else:
+                    break
+            except (OSError, PermissionError):
+                break
+            dir_path = os.path.dirname(dir_path)
+        
+        result = await self.create_commit(repo_name, commit_message)
+        
+        return {
+            "success": True,
+            "source": source_path,
+            "destination": dest_path,
+            "commit": result["commit"]
+        }
+
+    async def delete_repo(self, repo_name: str, force: bool = False) -> Dict[str, Any]:
+        """Delete a repository from disk."""
+        repo_path = os.path.join(self.main_repo_path, repo_name)
+        
+        if not os.path.exists(repo_path):
+            raise ValueError(f"Repository '{repo_name}' does not exist")
+        
+        # Check if it's a git repo
+        if not os.path.exists(os.path.join(repo_path, ".git")):
+            raise ValueError(f"'{repo_name}' is not a Git repository")
+        
+        # Close any open repo handles
+        if repo_name in self.repos:
+            self.repos[repo_name].close()
+            del self.repos[repo_name]
+        
+        # Remove from locks
+        if repo_name in self.locks:
+            del self.locks[repo_name]
+        
+        # Delete the directory
+        shutil.rmtree(repo_path)
+        
+        logger.info(f"✅ Deleted repository '{repo_name}'")
+        return {
+            "success": True,
+            "repo_name": repo_name,
+            "path": repo_path
+        }
+
+    async def list_branches(self, repo_name: str) -> Dict[str, Any]:
+        """List all branches in a repository using pure Git."""
+        repo = await self.get_repo(repo_name)
+        
+        branches = []
+        current_branch = None
+        
+        # Get current branch
+        try:
+            head = repo.refs.get_symrefs().get(b"HEAD")
+            if head:
+                current_branch = head.decode().replace("refs/heads/", "")
+        except Exception:
+            pass
+        
+        # List all branches
+        for ref in repo.refs.keys():
+            if ref.startswith(b"refs/heads/"):
+                bname = ref.decode().replace("refs/heads/", "")
+                try:
+                    sha = repo.refs[ref].hex()[:8]
+                except Exception:
+                    sha = "unknown"
+                
+                branches.append({
+                    "name": bname,
+                    "commit": sha,
+                    "is_current": bname == current_branch
+                })
+        
+        # Sort: current first, then alphabetically
+        branches.sort(key=lambda x: (not x["is_current"], x["name"]))
+        
+        return {
+            "success": True,
+            "repo_name": repo_name,
+            "current_branch": current_branch,
+            "branches": branches,
+            "count": len(branches)
+        }
+
+    async def delete_directory(self, repo_name: str, dir_path: str, commit_message: str = "Delete directory") -> Dict[str, Any]:
+        """
+        Delete a directory and all its contents recursively.
+        """
+        repo = await self.get_repo(repo_name)
+        repo_path = os.path.join(self.main_repo_path, repo_name)
+        repo_path_abs = os.path.abspath(repo_path)
+        
+        # Strip leading slash
+        if dir_path.startswith('/'):
+            dir_path = dir_path.lstrip('/')
+        
+        # Prevent path traversal
+        if '..' in dir_path:
+            raise ValueError("Invalid path - directory traversal detected")
+        
+        full_path = os.path.abspath(os.path.join(repo_path, dir_path))
+        
+        if not full_path.startswith(repo_path_abs + os.sep):
+            raise ValueError(f"Invalid path - must be inside repository")
+        
+        if not os.path.exists(full_path):
+            raise ValueError(f"Path '{dir_path}' does not exist")
+        
+        if not os.path.isdir(full_path):
+            raise ValueError(f"'{dir_path}' is not a directory")
+        
+        # Delete directory recursively
+        shutil.rmtree(full_path)
+        
+        # Create commit
+        result = await self.create_commit(repo_name, commit_message)
+        
+        return {
+            "success": True,
+            "dir_path": dir_path,
+            "commit": result["commit"]
+        }
+
+
+    async def delete_file_or_dir(self, repo_name: str, path: str, commit_message: str = "Delete") -> Dict[str, Any]:
+        """
+        Delete a file or directory (auto-detects).
+        """
+        repo = await self.get_repo(repo_name)
+        repo_path = os.path.join(self.main_repo_path, repo_name)
+        repo_path_abs = os.path.abspath(repo_path)
+        
+        # Strip leading slash
+        if path.startswith('/'):
+            path = path.lstrip('/')
+        
+        # Prevent path traversal
+        if '..' in path:
+            raise ValueError("Invalid path - directory traversal detected")
+        
+        full_path = os.path.abspath(os.path.join(repo_path, path))
+        
+        if not full_path.startswith(repo_path_abs + os.sep):
+            raise ValueError(f"Invalid path - must be inside repository")
+        
+        if not os.path.exists(full_path):
+            raise ValueError(f"Path '{path}' does not exist")
+        
+        # Delete based on type
+        if os.path.isdir(full_path):
+            shutil.rmtree(full_path)
+            deleted_type = "directory"
+        else:
+            os.remove(full_path)
+            deleted_type = "file"
+        
+        # Clean up empty directories
+        if deleted_type == "file":
+            dir_path = os.path.dirname(full_path)
+            while dir_path != repo_path:
+                try:
+                    if not os.listdir(dir_path):
+                        os.rmdir(dir_path)
+                    else:
+                        break
+                except (OSError, PermissionError):
+                    break
+                dir_path = os.path.dirname(dir_path)
+        
+        # Create commit
+        result = await self.create_commit(repo_name, commit_message)
+        
+        return {
+            "success": True,
+            "path": path,
+            "deleted_type": deleted_type,
+            "commit": result["commit"]
+        }
