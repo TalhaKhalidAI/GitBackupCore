@@ -26,7 +26,7 @@ async def lifespan(app:FastAPI):
     yield
     logger.info("app end")
 
-app = FastAPI(title="API Basic Boilerplate", version="0.0.1",lifespan=lifespan)
+app = FastAPI(title="Git Base Backup System", version="0.0.1",lifespan=lifespan)
 
 # State and Exception Handlers
 app.state.limiter = limiter
