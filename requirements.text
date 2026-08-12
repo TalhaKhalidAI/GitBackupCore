@@ -1,0 +1,84 @@
+# ============================================================
+# Core Framework
+# ============================================================
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+pydantic[email]
+
+# ============================================================
+# Database & ORM (Async PostgreSQL)
+# ============================================================
+sqlalchemy
+alembic
+asyncpg
+psycopg2-binary
+
+# ============================================================
+# Authentication & Security
+# ============================================================
+python-jose[cryptography]
+argon2-cffi
+passlib[argon2]
+python-multipart
+cryptography
+
+# ============================================================
+# Git Operations (Dulwich - Pure Python Git)
+# ============================================================
+dulwich
+
+# ============================================================
+# SSH Server (AsyncSSH) & SFTP
+# ============================================================
+asyncssh
+paramiko
+
+# ============================================================
+# Async & File Operations
+# ============================================================
+aiofiles
+anyio
+
+# ============================================================
+# Rate Limiting
+# ============================================================
+slowapi
+
+# ============================================================
+# HTTP & Middleware
+# ============================================================
+httpx
+python-dotenv
+cors
+
+# ============================================================
+# Observability & Monitoring
+# ============================================================
+prometheus-client
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-fastapi
+
+# ============================================================
+# Development & Testing
+# ============================================================
+pytest
+pytest-asyncio
+pytest-cov
+pytest-xdist
+black
+ruff
+mypy
+
+# ============================================================
+# Production Utilities
+# ============================================================
+tenacity
+redis
+celery
+gunicorn
+python-json-logger
+uvloop
+httptools

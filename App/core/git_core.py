@@ -1702,3 +1702,84 @@ class GitCore:
             "deleted_type": deleted_type,
             "commit": result["commit"]
         }
+    
+    async def path_to_git_tree(
+        self,
+        repo_name: str,
+        path: str,
+        max_size: int = 10 * 1024 * 1024 * 1024  # 10GB default
+    ) -> Tree:
+        """
+        Convert ANY file path to a Git Tree object (recursively).
+        
+        Args:
+            repo_name: Name of the repository
+            path: File or directory path to convert
+            max_size: Maximum total size to process (default: 10GB)
+        
+        Returns:
+            dulwich.objects.Tree: Git Tree object
+        
+        Raises:
+            ValueError: If path invalid, repo doesn't exist, or size too large
+            PermissionError: If can't access the path
+        """
+        
+        # 1. Validate input
+        if not path:
+            raise ValueError("Path cannot be empty")
+        
+        if not os.path.exists(path):
+            raise ValueError(f"Path '{path}' does not exist")
+        
+        # Prevent directory traversal
+        if '..' in path:
+            raise ValueError("Invalid path - directory traversal detected")
+        
+        # 2. Check repo exists
+        repo_path = os.path.join(self.main_repo_path, repo_name)
+        if not os.path.exists(os.path.join(repo_path, ".git")):
+            raise ValueError(f"Repository '{repo_name}' does not exist")
+        
+        # 3. Check size limit (for directories)
+        if os.path.isdir(path):
+            total_size = self._get_directory_size(path)
+            if total_size > max_size:
+                raise ValueError(
+                    f"Directory too large: {total_size / (1024**3):.2f} GB "
+                    f"(max: {max_size / (1024**3):.2f} GB)"
+                )
+        
+        # 4. Get repository
+        repo = await self.get_repo(repo_name)
+        
+        try:
+            # 5. Create virtual tree with lock
+            async with self._get_lock(repo_name):
+                virtual_tree = await self.dir_walk(path)
+                git_tree = await self.make_tree(repo, virtual_tree)
+                repo.object_store.add_object(git_tree)
+                return git_tree
+                
+        except PermissionError as e:
+            logger.error(f"Permission denied: {path} - {e}")
+            raise ValueError(f"Cannot access path: {path}")
+        except Exception as e:
+            logger.error(f"Failed to convert path to Git tree: {e}")
+            raise
+
+
+    def _get_directory_size(self, path: str) -> int:
+        """Calculate total size of a directory (recursive)."""
+        total = 0
+        try:
+            for root, dirs, files in os.walk(path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    try:
+                        total += os.path.getsize(file_path)
+                    except (OSError, FileNotFoundError):
+                        pass
+        except (OSError, PermissionError):
+            pass
+        return total

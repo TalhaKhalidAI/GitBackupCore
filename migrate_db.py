@@ -17,7 +17,7 @@ from App.api.databases.RetentionPolicy import RetentionPolicy
 from App.api.databases.AlertRule import AlertRule
 from App.api.databases.AccessLog import AccessLog
 from App.api.databases.QuotaUsage import QuotaUsage
-
+from App.api.databases.SSH import SSHClient,SSHClientJob,SSHClientPath,SSHClientSchedule
 def run_migration():
     """Create all database tables."""
     print("=" * 50)

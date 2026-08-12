@@ -7,10 +7,10 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from App.api.v1 import v1_router
+from App.api.v1 import app_router
 from App.core.settings import settings
 from App.core.LoggingInit import get_core_logger
-from App.core.git_core import GitCore
+from App.core.CreateAdmin import create_admin
 # Initialize Logger
 logger = get_core_logger(__name__)
 
@@ -19,60 +19,18 @@ limiter = Limiter(
     key_func=get_remote_address,
     default_limits=[settings.RATE_LIMIT_DEFAULT] if settings.RATE_LIMIT_DEFAULT else ["100/minute"]
 )
-
-def create_default_admin():
-    """Create default admin user on startup if not exists"""
-    from App.api.dependencies.sqlite_connector import SessionLocal
-    from App.repository.userRepository import UserRepository
-    from App.api.dependencies.auth import get_password_hash
-    
-    db = SessionLocal()
-    try:
-        repo = UserRepository(db)
-        admin_username = os.getenv("ADMIN_USERNAME", "admin")
-        admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
-        admin_password = os.getenv("ADMIN_PASSWORD", "Admin@123")
-        
-        # Check if admin exists
-        existing_admin = repo.get_by_username(admin_username)
-        if not existing_admin:
-            admin_data = {
-                "username": admin_username,
-                "email": admin_email,
-                "full_name": "System Administrator",
-                "password_hash": get_password_hash(admin_password),
-                "user_role": "admin",
-                "is_active": True,
-                "disabled": False,
-                "is_admin": True
-            }
-            repo.create_user(admin_data)
-            logger.info(f"Default admin user created: {admin_username}")
-        else:
-            logger.info(f"Admin user already exists: {admin_username}")
-    except Exception as e:
-        logger.error(f"Error creating default admin: {e}")
-    finally:
-        db.close()
-
 @asynccontextmanager
 async def lifespan(app:FastAPI):
+    await create_admin()
     logger.info("App started")
-    #app.state.git_manager = GitCore(max_repos=settings.MAX_REPOS)
-    # Create default admin user
-    create_default_admin()
-    
     yield
     logger.info("app end")
 
-app = FastAPI(title="Langchain API", version="0.0.1", lifespan=lifespan)
+app = FastAPI(title="API Basic Boilerplate", version="0.0.1",lifespan=lifespan)
 
 # State and Exception Handlers
 app.state.limiter = limiter
 app.state.auto_kill_enabled = False  # Global flag for automatic protection
-
-
-
 
 @app.exception_handler(RateLimitExceeded)
 async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
@@ -133,10 +91,9 @@ app.add_middleware(
 app.add_middleware(SlowAPIMiddleware)
 
 
-
 @app.get("/health", status_code=status.HTTP_200_OK, tags=["System"])
 async def health_check():
     """Simple health check endpoint for monitoring"""
     return {"status": "healthy", "version": "0.0.1"}
 
-app.include_router(v1_router, prefix="/app/v1")
+app.include_router(app_router, prefix="/app/v1")

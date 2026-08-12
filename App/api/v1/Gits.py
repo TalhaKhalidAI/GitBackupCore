@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response, Query,F
 from sqlalchemy.orm import Session
 from typing import List, Optional,Dict,Any
 import logging
-from App.api.dependencies.sqlite_connector import get_db
+ 
 import base64
 from App.api.dependencies.auth import (
     get_current_user,

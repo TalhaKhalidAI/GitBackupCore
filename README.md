@@ -1,268 +1,246 @@
- # FastAPI User Authentication & Management System
+# FastAPI Boilerplate with SQLAlchemy Integration
 
-A production-ready FastAPI boilerplate with SQLite database, JWT authentication, and role-based access control.
+This repository demonstrates a FastAPI application with JWT authentication, Argon2 password hashing, and SQLAlchemy async ORM for PostgreSQL.
 
-## Made by Talha Khalid
+The project includes:
+- Login and signup flows
+- JWT access and refresh token support
+- Admin account management: disable, enable, restore, delete
+- Self-service account restore and password change
+- Short-lived restore tokens for account recovery
+- Rate limiting and CORS support
 
-## Features
+## Prerequisites
 
-### Authentication
-- JWT-based authentication with Argon2 password hashing
-- Login/Signup with email validation
-- Password strength validation (uppercase, lowercase, digit, special character)
-- Token-based session management
+- Python 3.11+
+- Docker & Docker Compose (recommended)
+- PostgreSQL for production
 
-### User Management
-- User registration and login
-- Profile viewing and editing
-- Password change and reset (admin can reset any user password)
-- Account activation/deactivation
-- Soft delete with restore capability
+## Docker Setup (Recommended)
 
-### Role-Based Access Control
-- **Admin Role**: Full access to all user data and management
-- **User Role**: Limited to own profile management
+1. Clone the repository.
+2. Create a `.env` file in the repo root.
+3. Start services:
 
-### Security
-- Password hashing with Argon2
-- JWT tokens with configurable expiration
-- Role-based authorization
-- Input validation with Pydantic
-- SQL injection protection via SQLAlchemy
-
-## Tech Stack
-
-- **Framework**: FastAPI
-- **Database**: SQLite (via SQLAlchemy)
-- **Authentication**: JWT with Argon2 password hashing
-- **Validation**: Pydantic v2
-- **Rate Limiting**: SlowAPI
-- **Logging**: Python logging
-
-## Installation
-
-### 1. Clone the repository
 ```bash
-git clone https://github.com/iot-Noob/API-Boiler-Plate.git
-cd API-Boiler-Plate
+docker-compose up -d
 ```
 
-### 2. Create virtual environment
-```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or
-venv\Scripts\activate  # Windows
-```
-
-### 3. Install dependencies
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Configure environment
-Edit the `.env` file with your settings:
+### Required `.env` values for Docker
 
 ```env
-# Security (REQUIRED)
-SECRET_KEY=your-secret-key-here-min-32-chars-long!
+SECRET_KEY=your_very_secret_key_at_least_32_chars
+DATABASE_PASSWORD=your_db_password
+ALLOWED_ORIGINS=http://localhost:3000,https://yourdomain.com
+RATE_LIMIT_DEFAULT=100/minute
+KILL_SWITCH_ENABLED=false
+```
+
+Docker Compose uses PostgreSQL and injects the connection settings into the API container.
+
+## Local Development Setup
+
+Create a `.env` file in the repository root with these values:
+
+```env
+SECRET_KEY=your_very_secret_key_at_least_32_chars
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=790
-
-# Database
-SQLITE_DATABASE_URL=sqlite:///./app.db
-
-# Logging
-LOG_FILEPATH=./logs/
-
-# Rate Limiting
-RATE_LIMIT_DEFAULT=100/minute
-
-# Maintenance
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_USER=postgres
+DATABASE_PASSWORD=your_db_password
+DATABASE_NAME=myapp_db
+DATABASE_SCHEMA=public
+DATABASE_SSLMODE=prefer
+ALLOWED_ORIGINS=http://localhost:3000,https://yourdomain.com
 KILL_SWITCH_ENABLED=false
-
-# Argon2 Hashing
+RATE_LIMIT_DEFAULT=100/minute
+LOG_FILEPATH=./logs/
 MEMORY_COST=65536
 PARALLELISM=2
 HASH_LENGTH=32
 SALT_LENGTH=16
-
-# Admin User (REQUIRED)
-ADMIN_USERNAME=admin
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=Admin@123
-
-# Environment
-ENVIRONMENT=development
-ALLOWED_ORIGINS=*
 ```
 
-### 5. Run the application
+### Notes on environment variables
+
+- `SECRET_KEY`: Secret used for JWT signing. Must be at least 32 characters in production.
+- `ALGORITHM`: JWT algorithm (default `HS256`).
+- `ACCESS_TOKEN_EXPIRE_MINUTES`: Access token lifetime in minutes.
+- `DATABASE_*`: PostgreSQL connection settings.
+- `ALLOWED_ORIGINS`: Comma-separated CORS origins.
+- `KILL_SWITCH_ENABLED`: Enable manual maintenance mode.
+- `RATE_LIMIT_DEFAULT`: Default rate limit, e.g. `100/minute`.
+- `LOG_FILEPATH`: Directory for logs.
+- `MEMORY_COST`, `PARALLELISM`, `HASH_LENGTH`, `SALT_LENGTH`: Argon2 hashing parameters.
+
+## Database Setup
+
+The application uses PostgreSQL with async SQLAlchemy. The user model includes:
+
+- `id`
+- `name`
+- `email`
+- `password_hash`
+- `profile_pic`
+- `user_role`
+- `is_active`
+- `disabled`
+- `is_deleted`
+- `deleted_at`
+- `created_at`
+- `updated_at`
+
+### Apply migrations
+
+```bash
+alembic upgrade head
+```
+
+### Optional: Auto-create an admin user
+
+A helper exists in `App/repository/UserRepository.py` named `create_admin_if_not_exists`. Use it to seed a default admin account after migrations.
+
+```python
+import asyncio
+from App.api.dependencies.auth import get_password_hash
+from App.repository.UserRepository import UserRepository
+from App.core.Connector import database
+
+async def create_admin():
+    await database.connect()
+    async with database.session() as session:
+        await UserRepository.create_admin_if_not_exists(
+            session=session,
+            email="admin@example.com",
+            password_hash=get_password_hash("Admin@123456"),
+            name="System Administrator",
+            role="admin",
+            tier="enterprise"
+        )
+
+if __name__ == "__main__":
+    asyncio.run(create_admin())
+```
+
+Run this script after `alembic upgrade head` to ensure the admin account is created.
+
+> The project does not use `App/GetEnvDate.py`; database URL is configured through `App/core/settings.py`.
+
+## Application Structure
+
+The main FastAPI application is in `main.py` and mounts routes under the `/app/v1` prefix.
+
+### Router prefixes
+
+- Authentication: `/app/v1/auth/basic_auth`
+- Admin routes: `/app/v1/admin/admin_access`
+- User routes: `/app/v1/users/users_config`
+
+## Key Endpoints
+
+### Authentication
+
+- `POST /app/v1/auth/basic_auth/login`
+  - Request body: `username`, `password`
+  - Returns access and refresh tokens or sets a `CSO` cookie when using cookie mode.
+
+- `POST /app/v1/auth/basic_auth/signup`
+  - Request body: `name`, `email`, `password`, `profile_pic`
+  - Creates a new user.
+
+### Refresh Token
+
+- `POST /app/v1/users/users_config/refresh`
+  - Request body: `refresh_token`
+  - Returns a new access token.
+
+### Current User
+
+- `GET /app/v1/users/me`
+  - Returns profile data for the authenticated user.
+
+### Admin / Users
+
+- `GET /app/v1/users/users?skip=0&limit=100&search=...`
+  - Admin-only list users endpoint.
+
+### Admin account management
+
+- `POST /app/v1/admin/admin_access/account/disable/{user_id}`
+  - Disable a user account.
+
+- `POST /app/v1/admin/admin_access/account/enable/{user_id}`
+  - Enable a disabled or inactive account.
+
+- `POST /app/v1/admin/admin_access/account/restore/{user_id}`
+  - Restore a deleted or disabled account.
+
+- `POST /app/v1/admin/admin_access/account/temp_token/{user_id}`
+  - Create a short-lived token for account restoration or password reset.
+
+- `PUT /app/v1/admin/admin_access/account/password/{user_id}`
+  - Update a user password.
+
+- `DELETE /app/v1/admin/admin_access/account/{user_id}`
+  - Soft delete a user account.
+
+## Example Request Bodies
+
+### Signup
+
+```json
+{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "password": "StrongPass123!",
+  "profile_pic": "https://example.com/avatar.png"
+}
+```
+
+### Update Account
+
+Use `PATCH /app/v1/admin/admin_access/account/{user_id}` with any of:
+
+```json
+{
+  "name": "New Name",
+  "email": "new@example.com",
+  "password": "NewPass123!",
+  "profile_pic": "https://example.com/new.png",
+  "user_role": "user",
+  "disable": false
+}
+```
+
+### Delete Account
+
+- Admin can delete any user except themselves.
+- Normal users can delete their own account with `password` verification.
+
+## Running Locally
+
 ```bash
 uvicorn main:app --reload
 ```
 
-The API will be available at `http://localhost:8000`
+## Logging
 
-## API Endpoints
+Logs are written to the directory configured by `LOG_FILEPATH` in `.env`.
 
-### Authentication
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/app/v1/users/signup` | Register new user |
-| POST | `/app/v1/users/login` | Login and get token |
+## Security
 
-### User Management
-| Method | Endpoint | Description | Access |
-|--------|----------|-------------|--------|
-| GET | `/app/v1/users/me` | Get current user profile | User |
-| GET | `/app/v1/users/` | List all users | Admin |
-| GET | `/app/v1/users/{id}` | Get user by ID | User (own), Admin (any) |
-| PUT | `/app/v1/users/{id}` | Update user | User (own), Admin (any) |
-| DELETE | `/app/v1/users/{id}` | Delete user | User (own), Admin (any) |
-| POST | `/app/v1/users/change-password` | Change own password | User |
-| POST | `/app/v1/users/{id}/reset-password` | Reset user password | Admin |
-| POST | `/app/v1/users/{id}/activate` | Activate user | Admin |
-| POST | `/app/v1/users/{id}/deactivate` | Deactivate user | Admin |
-| GET | `/app/v1/users/deleted/list` | List deleted users | Admin |
-| POST | `/app/v1/users/{id}/restore` | Restore deleted user | Admin |
+- Argon2 is used for password hashing.
+- JWT tokens secure authentication.
+- Rate limiting and a kill-switch middleware are included.
 
-### System
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check |
+## Notes
 
-## Usage Examples
+- Replace placeholder values in `.env` with your real configuration.
+- Ensure PostgreSQL is running and migrations are applied before starting the app.
+- The admin and user routes are mounted under `/app/v1`.
 
-### 1. Register a new user
-```bash
-curl -X POST http://localhost:8000/app/v1/users/signup \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "johndoe",
-    "email": "john@example.com",
-    "password": "Password@123",
-    "full_name": "John Doe"
-  }'
-```
+---
 
-### 2. Login
-```bash
-curl -X POST http://localhost:8000/app/v1/users/login \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=johndoe&password=Password@123"
-```
-
-Response:
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer",
-  "user": {
-    "id": 2,
-    "username": "johndoe",
-    "email": "john@example.com",
-    "full_name": "John Doe",
-    "user_role": "user",
-    "is_active": true,
-    "disabled": false
-  }
-}
-```
-
-### 3. Get current user profile
-```bash
-curl -X GET http://localhost:8000/app/v1/users/me \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
-```
-
-### 4. Update own profile
-```bash
-curl -X PUT http://localhost:8000/app/v1/users/2 \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "newemail@example.com",
-    "full_name": "John Updated"
-  }'
-```
-
-### 5. Admin - List all users
-```bash
-curl -X GET http://localhost:8000/app/v1/users/ \
-  -H "Authorization: Bearer ADMIN_ACCESS_TOKEN"
-```
-
-### 6. Admin - Reset user password
-```bash
-curl -X POST http://localhost:8000/app/v1/users/2/reset-password \
-  -H "Authorization: Bearer ADMIN_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "new_password": "NewPass@123"
-  }'
-```
-
-## Project Structure
-
-```
-GptMobal/
-├── App/
-│   ├── api/
-│   │   ├── dependencies/
-│   │   │   ├── auth.py          # JWT & password utilities
-│   │   │   └── sqlite_connector.py
-│   │   └── v1/
-│   │       ├── Users.py         # User endpoints
-│   │       └── langChainsRoutes.py
-│   ├── core/
-│   │   ├── settings.py          # Configuration
-│   │   └── LoggingInit.py
-│   ├── models/
-│   │   └── userModels.py        # Pydantic models
-│   ├── repository/
-│   │   └── userRepository.py    # Database operations
-│   └── schemas/
-│       └── userSchemas.py
-├── main.py                      # Application entry point
-├── .env                         # Environment variables
-└── app.db                       # SQLite database (auto-created)
-```
-
-## Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| SECRET_KEY | Yes | - | JWT secret key (min 32 chars) |
-| ALGORITHM | Yes | HS256 | JWT algorithm |
-| ACCESS_TOKEN_EXPIRE_MINUTES | Yes | 790 | Token expiry time |
-| SQLITE_DATABASE_URL | Yes | sqlite:///./app.db | Database URL |
-| LOG_FILEPATH | Yes | ./logs/ | Logs directory |
-| RATE_LIMIT_DEFAULT | Yes | 100/minute | Rate limit |
-| KILL_SWITCH_ENABLED | No | false | Maintenance mode |
-| MEMORY_COST | Yes | 65536 | Argon2 memory cost |
-| PARALLELISM | Yes | 2 | Argon2 parallelism |
-| HASH_LENGTH | Yes | 32 | Argon2 hash length |
-| SALT_LENGTH | Yes | 16 | Argon2 salt length |
-| ADMIN_USERNAME | Yes | admin | Default admin username |
-| ADMIN_EMAIL | Yes | admin@example.com | Default admin email |
-| ADMIN_PASSWORD | Yes | Admin@123 | Default admin password |
-| ENVIRONMENT | No | development | Environment mode |
-| ALLOWED_ORIGINS | No | * | CORS origins |
-
-## Production Deployment
-
-1. Set `ENVIRONMENT=production` in `.env`
-2. Set a strong `SECRET_KEY` (generate a random 64+ character string)
-3. Configure `ALLOWED_ORIGINS` with your frontend domain
-4. Use a production-grade database (PostgreSQL recommended)
-5. Enable HTTPS/SSL
-6. Configure proper CORS settings
-
-## License
-
-MIT License
-
-## Author
-
-**Talha Khalid**
+Private project: `iotNoob` by Talha.

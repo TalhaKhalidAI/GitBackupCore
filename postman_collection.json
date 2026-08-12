@@ -1,0 +1,672 @@
+{
+  "info": {
+    "name": "API Collection - 2026-07-02",
+    "description": "Auto-generated from FastAPI OpenAPI spec",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "\ud83d\udd10 Authentication",
+      "item": [
+        {
+          "name": "1. Login (Get Tokens)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"talha\",\n  \"password\": \"Test@12345\",\n  \"use_cookie\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/app/v1/basic_auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "app",
+                "v1",
+                "basic_auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.environment.set('access_token', jsonData.access_token);",
+                  "    pm.environment.set('refresh_token', jsonData.refresh_token);",
+                  "    console.log('\u2705 Tokens saved!');",
+                  "} else {",
+                  "    console.log('\u274c Login failed');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/app/v1/users/users_config/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "app",
+                "v1",
+                "users",
+                "users_config",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "3. Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/app/v1/basic_auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "app",
+                "v1",
+                "basic_auth",
+                "logout"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "\ud83d\udd10 Authentication",
+      "item": [
+        {
+          "name": "1. Login (Get Tokens)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"talha\",\n  \"password\": \"Test@12345\",\n  \"use_cookie\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/app/v1/basic_auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "app",
+                "v1",
+                "basic_auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.environment.set('access_token', jsonData.access_token);",
+                  "    pm.environment.set('refresh_token', jsonData.refresh_token);",
+                  "    console.log('\u2705 Tokens saved!');",
+                  "} else {",
+                  "    console.log('\u274c Login failed');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/app/v1/users/users_config/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "app",
+                "v1",
+                "users",
+                "users_config",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "3. Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/app/v1/basic_auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "app",
+                "v1",
+                "basic_auth",
+                "logout"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "GET /health",
+          "id": "health_check_health_get",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Health Check"
+          },
+          "response": [
+            {
+              "name": "Success 200",
+              "status": "200",
+              "code": 200,
+              "body": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "POST /app/v1/auth/basic_auth/login",
+          "id": "login_app_v1_auth_basic_auth_login_post",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/app/v1/auth/basic_auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "app",
+                "v1",
+                "auth",
+                "basic_auth",
+                "login"
+              ],
+              "query": [
+                {
+                  "key": "cookie_login",
+                  "value": "string",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "User login",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Success 200",
+              "status": "200",
+              "code": 200,
+              "body": null
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Auto-save token on successful login",
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.access_token) {",
+                  "        pm.environment.set('access_token', jsonData.access_token);",
+                  "        console.log('\u2705 Access token saved!');",
+                  "    }",
+                  "    if (jsonData.refresh_token) {",
+                  "        pm.environment.set('refresh_token', jsonData.refresh_token);",
+                  "        console.log('\u2705 Refresh token saved!');",
+                  "    }",
+                  "} else {",
+                  "    console.log('\u274c Login failed');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /app/v1/auth/basic_auth/signup",
+          "id": "signup_app_v1_auth_basic_auth_signup_post",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/app/v1/auth/basic_auth/signup",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "app",
+                "v1",
+                "auth",
+                "basic_auth",
+                "signup"
+              ]
+            },
+            "description": "Register new user",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Success 201",
+              "status": "201",
+              "code": 201,
+              "body": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "PATCH /app/v1/admin/admin_access/account/{user_id}",
+          "id": "update_account_app_v1_admin_admin_access_account__user_id__patch",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text",
+                "description": "Access token from login"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/app/v1/admin/admin_access/account/{user_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "app",
+                "v1",
+                "admin",
+                "admin_access",
+                "account",
+                "{user_id}"
+              ]
+            },
+            "description": "Update user account",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Success 200",
+              "status": "200",
+              "code": 200,
+              "body": null
+            }
+          ]
+        },
+        {
+          "name": "DELETE /app/v1/admin/admin_access/account/{user_id}",
+          "id": "delete_account_app_v1_admin_admin_access_account__user_id__delete",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text",
+                "description": "Access token from login"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/app/v1/admin/admin_access/account/{user_id}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "app",
+                "v1",
+                "admin",
+                "admin_access",
+                "account",
+                "{user_id}"
+              ],
+              "query": [
+                {
+                  "key": "password",
+                  "value": "string",
+                  "description": "Required for non-admin users",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Delete user account"
+          },
+          "response": [
+            {
+              "name": "Success 204",
+              "status": "204",
+              "code": 204,
+              "body": null
+            }
+          ]
+        },
+        {
+          "name": "POST /app/v1/admin/admin_access/reset-auto-kill",
+          "id": "reset_auto_kill_app_v1_admin_admin_access_reset_auto_kill_post",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text",
+                "description": "Access token from login"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/app/v1/admin/admin_access/reset-auto-kill",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "app",
+                "v1",
+                "admin",
+                "admin_access",
+                "reset-auto-kill"
+              ]
+            },
+            "description": "Reset Auto-Kill Switch"
+          },
+          "response": [
+            {
+              "name": "Success 200",
+              "status": "200",
+              "code": 200,
+              "body": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "POST /app/v1/users/users_config/refresh",
+          "id": "refresh_token_app_v1_users_users_config_refresh_post",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text",
+                "description": "Access token from login"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/app/v1/users/users_config/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "app",
+                "v1",
+                "users",
+                "users_config",
+                "refresh"
+              ]
+            },
+            "description": "Refresh access token",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "Success 200",
+              "status": "200",
+              "code": 200,
+              "body": null
+            }
+          ]
+        },
+        {
+          "name": "GET /app/v1/users/users_config/me",
+          "id": "get_my_profile_app_v1_users_users_config_me_get",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text",
+                "description": "Access token from login"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/app/v1/users/users_config/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "app",
+                "v1",
+                "users",
+                "users_config",
+                "me"
+              ]
+            },
+            "description": "Get current user profile"
+          },
+          "response": [
+            {
+              "name": "Success 200",
+              "status": "200",
+              "code": 200,
+              "body": null
+            }
+          ]
+        },
+        {
+          "name": "GET /app/v1/users/users_config/users",
+          "id": "list_users_app_v1_users_users_config_users_get",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text",
+                "description": "Access token from login"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/app/v1/users/users_config/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "app",
+                "v1",
+                "users",
+                "users_config",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "0",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "search",
+                  "value": "string",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "List users (Admin only)"
+          },
+          "response": [
+            {
+              "name": "Success 200",
+              "status": "200",
+              "code": 200,
+              "body": null
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:2026",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}
